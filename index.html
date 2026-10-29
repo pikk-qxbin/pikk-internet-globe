@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Internet Connects Us All – Pikk Globe</title>
+<style>
+  body, html { margin: 0; padding: 0; overflow: hidden; height: 100%; background: #000011; font-family: 'Segoe UI', system-ui, sans-serif; color: #e0e0ff; }
+  #canvas-container { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+  #info-panel { position: absolute; top: 20px; left: 20px; width: 320px; max-height: 80vh; overflow-y: auto; background: rgba(10, 15, 30, 0.75); backdrop-filter: blur(10px); border: 1px solid rgba(0, 212, 255, 0.3); border-radius: 12px; padding: 16px; z-index: 10; box-shadow: 0 8px 32px rgba(0, 212, 255, 0.1); }
+  #info-panel h1 { margin: 0 0 8px 0; font-size: 1.4em; color: #00d4ff; text-shadow: 0 0 8px rgba(0, 212, 255, 0.5); }
+  #info-panel h2 { margin: 12px 0 6px 0; font-size: 1em; color: #a0c4ff; }
+  #info-panel p { margin: 6px 0; font-size: 0.85em; line-height: 1.4; opacity: 0.9; }
+  #featured-list { list-style: none; padding: 0; margin: 8px 0; }
+  #featured-list li { padding: 8px 10px; margin: 4px 0; background: rgba(0, 212, 255, 0.08); border-left: 3px solid #00d4ff; border-radius: 4px; cursor: pointer; transition: all 0.2s; font-size: 0.9em; }
+  #featured-list li:hover { background: rgba(0, 212, 255, 0.2); transform: translateX(4px); }
+  #status { position: absolute; bottom: 20px; left: 20px; font-size: 0.8em; opacity: 0.7; z-index: 10; }
+  #tooltip { position: absolute; display: none; background: rgba(0, 20, 40, 0.9); color: #fff; padding: 6px 10px; border-radius: 6px; font-size: 0.8em; pointer-events: none; z-index: 20; border: 1px solid #00d4ff; }
+  .brand { color: #00d4ff; font-weight: bold; }
+  .small { font-size: 0.75em; opacity: 0.6; margin-top: 12px; }
+</style>
+</head>
+<body>
+<div id="canvas-container"></div>
+<div id="info-panel">
+  <h1>🌐 The Internet Connects Us All</h1>
+  <p>Through thousands of kilometers of undersea fiber-optic cables — the physical wires that make global communication possible.</p>
+  <h2>Featured Landing Stations</h2>
+  <ul id="featured-list"></ul>
+  <p class="small">Main cable routes shown as glowing lines. Featured landing points only. Data: public TeleGeography-derived routes. Drag to spin · Click marker or list to focus · Auto-rotate pauses on interaction.</p>
+  <p class="small"><span class="brand">Pikk</span> · Infinity Blip · Education mode</p>
+</div>
+<div id="status">Loading cable routes...</div>
+<div id="tooltip"></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const container = document.getElementById('canvas-container');
+const statusEl = document.getElementById('status');
+const listEl = document.getElementById('featured-list');
+const tooltip = document.getElementById('tooltip');
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x000011);
+scene.fog = new THREE.Fog(0x000011, 15, 40);
+
+const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 100);
+camera.position.set(0, 2, 8);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.1;
+container.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.4;
+controls.minDistance = 2.2;
+controls.maxDistance = 20;
+controls.enablePan = false;
+
+// Lighting – soft ambient + directional
+const ambient = new THREE.AmbientLight(0x334466, 0.7);
+scene.add(ambient);
+const dirLight = new THREE.DirectionalLight(0xffffff, 1.4);
+dirLight.position.set(5, 3, 5);
+scene.add(dirLight);
+const fillLight = new THREE.DirectionalLight(0x88aaff, 0.4);
+fillLight.position.set(-5, -2, -3);
+scene.add(fillLight);
+
+// Earth
+const EARTH_RADIUS = 2;
+const earthGeo = new THREE.SphereGeometry(EARTH_RADIUS, 64, 64);
+const textureLoader = new THREE.TextureLoader();
+const earthMat = new THREE.MeshStandardMaterial({
+  roughness: 0.7,
+  metalness: 0.1,
+  emissive: new THREE.Color(0x112244),
+  emissiveIntensity: 0.15
+});
+const earth = new THREE.Mesh(earthGeo, earthMat);
+scene.add(earth);
+
+textureLoader.load(
+  'https://unpkg.com/three-globe@2.31.1/example/img/earth-blue-marble.jpg',
+  (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    earthMat.map = tex;
+    earthMat.needsUpdate = true;
+    statusEl.textContent = 'Earth loaded. Loading cable routes...';
+  },
+  undefined,
+  () => { statusEl.textContent = 'Texture failed – using solid globe'; }
+);
+
+// Atmosphere
+const atmosGeo = new THREE.SphereGeometry(EARTH_RADIUS * 1.03, 64, 64);
+const atmosMat = new THREE.MeshBasicMaterial({
+  color: 0x4fc3f7,
+  transparent: true,
+  opacity: 0.12,
+  side: THREE.BackSide,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false
+});
+const atmosphere = new THREE.Mesh(atmosGeo, atmosMat);
+scene.add(atmosphere);
+
+// Markers group (featured only)
+const markersGroup = new THREE.Group();
+scene.add(markersGroup);
+const markerMeshes = [];
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+function latLonToVector3(lat, lon, radius) {
+  const phi = (90 - lat) * Math.PI / 180;
+  const theta = (lon + 180) * Math.PI / 180;
+  const x = -radius * Math.sin(phi) * Math.cos(theta);
+  const y = radius * Math.cos(phi);
+  const z = radius * Math.sin(phi) * Math.sin(theta);
+  return new THREE.Vector3(x, y, z);
+}
+
+function createMarker(lat, lon, name, isFeatured = false) {
+  const pos = latLonToVector3(lat, lon, EARTH_RADIUS + 0.03);
+  const size = isFeatured ? 0.04 : 0.02;
+  const geo = new THREE.SphereGeometry(size, 12, 12);
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0x00ffff,
+    emissive: 0x00ffff,
+    emissiveIntensity: 2.0,
+    roughness: 0.2,
+    metalness: 0.7
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(pos);
+  mesh.userData = { name, lat, lon, isFeatured };
+  markersGroup.add(mesh);
+  markerMeshes.push(mesh);
+
+  // Outer glow
+  const glowGeo = new THREE.SphereGeometry(size * 1.6, 8, 8);
+  const glowMat = new THREE.MeshBasicMaterial({
+    color: 0x00d4ff,
+    transparent: true,
+    opacity: 0.3,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  });
+  const glow = new THREE.Mesh(glowGeo, glowMat);
+  glow.position.copy(pos);
+  markersGroup.add(glow);
+  return mesh;
+}
+
+// Featured locations only (reduced landing focus)
+const featured = [
+  { name: "Mumbai, India", lat: 19.075797, lon: 72.875902, desc: "Major Indian landing for Asia–Europe, Africa & Pacific systems." },
+  { name: "Singapore", lat: 1.293661, lon: 103.853028, desc: "Asia’s primary internet hub — dozens of cables converge here." },
+  { name: "Chennai, India", lat: 13.063485, lon: 80.243084, desc: "Key east-coast landing connecting India to Southeast Asia." },
+  { name: "Sydney, Australia", lat: -33.869697, lon: 151.207047, desc: "Gateway to Oceania and the Pacific cable systems." },
+  { name: "Cape Town, South Africa", lat: -33.919094, lon: 18.421985, desc: "Critical African landing linking the continent to the world." },
+  { name: "Rio de Janeiro, Brazil", lat: -22.903394, lon: -43.209563, desc: "Major South American landing station for Atlantic cables." },
+  { name: "Bellport, NY, USA", lat: 40.152887, lon: -74.062874, desc: "East Coast US landing for major transatlantic systems." },
+  { name: "Aldeburgh, United Kingdom", lat: 52.157843, lon: 1.590600, desc: "Important UK landing for European and Atlantic cables." },
+  { name: "Ajigaura, Japan", lat: 36.383559, lon: 140.612279, desc: "Pacific landing point for Asian–US fiber systems." },
+  { name: "Dubai, UAE", lat: 25.269340, lon: 55.308433, desc: "Middle East hub connecting Asia, Africa and Europe." }
+];
+
+featured.forEach(f => {
+  createMarker(f.lat, f.lon, f.name, true);
+  const li = document.createElement('li');
+  li.textContent = f.name;
+  li.title = f.desc;
+  li.onclick = () => focusOn(f.lat, f.lon, f.name);
+  listEl.appendChild(li);
+});
+
+// Load and draw main cable routes as lines
+const cablesGroup = new THREE.Group();
+scene.add(cablesGroup);
+
+fetch('https://raw.githubusercontent.com/hadistlm/submarine-cable-map/master/data/cable-geo.json')
+  .then(r => r.json())
+  .then(geo => {
+    let lineCount = 0;
+    const lineMaterial = new THREE.LineBasicMaterial({
+      color: 0x00d4ff,
+      transparent: true,
+      opacity: 0.65,
+      blending: THREE.AdditiveBlending,
+      linewidth: 1
+    });
+
+    geo.features.forEach(feature => {
+      if (feature.geometry && feature.geometry.type === 'MultiLineString') {
+        feature.geometry.coordinates.forEach(lineCoords => {
+          if (lineCoords.length < 2) return;
+          const points = [];
+          lineCoords.forEach(coord => {
+            const lon = coord[0];
+            const lat = coord[1];
+            const vec = latLonToVector3(lat, lon, EARTH_RADIUS + 0.015);
+            points.push(vec);
+          });
+          const geometry = new THREE.BufferGeometry().setFromPoints(points);
+          const line = new THREE.Line(geometry, lineMaterial);
+          cablesGroup.add(line);
+          lineCount++;
+        });
+      }
+    });
+    statusEl.textContent = `${lineCount} main cable route segments drawn · Featured landings only · Drag to explore`;
+  })
+  .catch(() => {
+    statusEl.textContent = 'Could not load cable routes — showing featured landings only';
+  });
+
+// Interaction
+let isUserInteracting = false;
+let resumeTimer = null;
+
+controls.addEventListener('start', () => {
+  isUserInteracting = true;
+  controls.autoRotate = false;
+  if (resumeTimer) clearTimeout(resumeTimer);
+});
+controls.addEventListener('end', () => {
+  isUserInteracting = false;
+  resumeTimer = setTimeout(() => {
+    if (!isUserInteracting) controls.autoRotate = true;
+  }, 2500);
+});
+
+renderer.domElement.addEventListener('click', onClick);
+renderer.domElement.addEventListener('mousemove', onMouseMove);
+
+function onMouseMove(event) {
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(markerMeshes);
+  if (intersects.length > 0) {
+    const m = intersects[0].object;
+    tooltip.style.display = 'block';
+    tooltip.style.left = (event.clientX + 12) + 'px';
+    tooltip.style.top = (event.clientY + 12) + 'px';
+    tooltip.textContent = m.userData.name;
+    renderer.domElement.style.cursor = 'pointer';
+  } else {
+    tooltip.style.display = 'none';
+    renderer.domElement.style.cursor = 'grab';
+  }
+}
+
+function onClick(event) {
+  mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+  mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(mouse, camera);
+  const intersects = raycaster.intersectObjects(markerMeshes);
+  if (intersects.length > 0) {
+    const m = intersects[0].object.userData;
+    focusOn(m.lat, m.lon, m.name);
+  }
+}
+
+// Smooth camera focus
+let focusAnim = null;
+function focusOn(lat, lon, name) {
+  const target = latLonToVector3(lat, lon, EARTH_RADIUS);
+  const camPos = target.clone().normalize().multiplyScalar(EARTH_RADIUS * 2.8);
+  focusAnim = {
+    startTime: performance.now(),
+    duration: 1400,
+    startCam: camera.position.clone(),
+    endCam: camPos,
+    startTarget: controls.target.clone(),
+    endTarget: target.clone()
+  };
+  controls.autoRotate = false;
+  statusEl.textContent = `Focused: ${name}`;
+}
+
+function updateFocus(now) {
+  if (!focusAnim) return;
+  const t = Math.min(1, (now - focusAnim.startTime) / focusAnim.duration);
+  const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+  camera.position.lerpVectors(focusAnim.startCam, focusAnim.endCam, ease);
+  controls.target.lerpVectors(focusAnim.startTarget, focusAnim.endTarget, ease);
+  if (t >= 1) focusAnim = null;
+}
+
+function animate(now = 0) {
+  requestAnimationFrame(animate);
+  updateFocus(now);
+  // Gentle pulse on featured markers
+  const pulse = 1 + Math.sin(now * 0.003) * 0.08;
+  markerMeshes.forEach(m => {
+    if (m.userData.isFeatured) m.scale.setScalar(pulse);
+  });
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+</script>
+</body>
+</html>
